@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: ct_agent_tg_bot_module
+Version: 0.1.0
+Summary: Telegram bot service for trade signal intake
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: python-telegram-bot>=20.0
+Requires-Dist: pydantic>=2.0
+Requires-Dist: shared
+Requires-Dist: ct_agent_nlp_parser_module
