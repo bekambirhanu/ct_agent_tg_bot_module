@@ -1,8 +1,10 @@
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from shared.config.Settings import Settings
 from nlp_parser.parser import TradeParser
+from broker_exness.adapter import ExnessBroker
 
 # Initialize NLP Parser
 parser = TradeParser(
@@ -10,7 +12,7 @@ parser = TradeParser(
     model=Settings.MODEL_NAME,
     base_url=Settings.MODEL_BASE_URL
 )
-
+broker = ExnessBroker()
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     
@@ -20,9 +22,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not result.success:
         await update.message.reply_text(f"❌ Failed to parse trade: {result.error_message}")
         return
-
+    
     order = result.order
-    # 2. Format a confirmation message
+    
     response_msg = (
         f"✅ **Trade Parsed:**\n"
         f"🔹 Action: {order.action}\n"
@@ -31,11 +33,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 SL: {order.sl} | TP: {order.tp}\n\n"
         f"Confirming with broker..."
     )
-    await update.message.reply_text(response_msg, parse_mode="Markdown")
+    await update.message.reply_text(response_msg)
     
-    # TODO: Step 3 will be: Send 'order' to broker-exness module
+    # 2. Execute trade
+    tempo_message= await update.message.reply_text("⏳ Sending order to Exness...")
+    execution = await broker.execute_order(order)
+    await tempo_message.delete()
+    await asyncio.sleep(1)
 
-def main():
+    # 3. Respond
+    if execution.get("success"):
+        await update.message.reply_text(f"🚀 Order Executed! ID: {execution.get('order_id')}")
+    else:
+        await update.message.reply_text(f"⚠️ Broker Error: \n{execution.get('error')}")
+    
+
+def run_bot():
     app = ApplicationBuilder().token(Settings.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
@@ -43,4 +56,4 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    run_bot()
