@@ -9,11 +9,13 @@ dependencies = [
 	"pydantic>=2.0",
 	"shared",
 	"ct_agent_nlp_parser_module",
+	"account_manager",
 ]
 
 [tool.uv.sources]
 shared = { workspace = true }
 ct_agent_nlp_parser_module = { workspace = true }
+account_manager = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

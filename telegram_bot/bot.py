@@ -1,59 +1,44 @@
 import logging
 import asyncio
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-from shared.config.Settings import Settings
-from nlp_parser.parser import TradeParser
-from broker_exness.adapter import ExnessBroker
-
-# Initialize NLP Parser
-parser = TradeParser(
-    api_key=Settings.MODEL_API_KEY,
-    model=Settings.MODEL_NAME,
-    base_url=Settings.MODEL_BASE_URL
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ConversationHandler, filters, MessageHandler
+from shared.shared.config.Settings import Settings
+from .handlers.request_handlers import get_balance, handle_message
+from .handlers.account_handler import (
+    start_command, start_link_mt5, process_login, 
+    process_pass, process_server, list_accounts, delete_account,
+    LINK_STEP_LOGIN, LINK_STEP_PASS, LINK_STEP_SERVER
 )
-broker = ExnessBroker()
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    
-    # 1. Process Text via NLP
-    result = parser.parse_text(user_text)
-    print({"parser": result})
-    if not result.success:
-        await update.message.reply_text(f"❌ Failed to parse trade: {result.error_message}")
-        return
-    
-    order = result.order
-    
-    response_msg = (
-        f"✅ **Trade Parsed:**\n"
-        f"🔹 Action: {order.action}\n"
-        f"🔹 Symbol: {order.symbol}\n"
-        f"🔹 Volume: {order.volume}\n"
-        f"🔹 SL: {order.sl} | TP: {order.tp}\n\n"
-        f"Confirming with broker..."
-    )
-    await update.message.reply_text(response_msg)
-    
-    # 2. Execute trade
-    tempo_message= await update.message.reply_text("⏳ Sending order to Exness...")
-    execution = await broker.execute_order(order)
-    await tempo_message.delete()
-    await asyncio.sleep(1)
 
-    # 3. Respond
-    if execution.get("success"):
-        await update.message.reply_text(f"🚀 Order Executed! ID: {execution.get('order_id')}")
-    else:
-        await update.message.reply_text(f"⚠️ Broker Error: \n{execution.get('error')}")
-    
-
-def run_bot():
+def main():
     app = ApplicationBuilder().token(Settings.TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+
+    # The Link Account Conversation
+    link_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_link_mt5, pattern="^link_mt5$")],
+        states={
+            LINK_STEP_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_login)],
+            LINK_STEP_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_pass)],
+            LINK_STEP_SERVER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_server)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True
+    )
+
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(link_conv)
+    app.add_handler(CallbackQueryHandler(list_accounts, pattern="^list_accounts$"))
+    app.add_handler(CallbackQueryHandler(delete_account, pattern="^del_"))
+    app.add_handler(CallbackQueryHandler(start_command, pattern="^back_main$")) # Reuse start for main menu
     
-    print("Bot is running...")
+    # And then handle the request
+    app.add_handler(CommandHandler("balance", get_balance))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+
+    print("Bot is running...🤖")
+
     app.run_polling()
 
+ # Run as main
 if __name__ == "__main__":
-    run_bot()
+    main()
