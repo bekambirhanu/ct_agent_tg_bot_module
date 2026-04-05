@@ -1,31 +1,36 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
-from account_manager.manager.user_manager import UserManager
+from telegram.ext import ContextTypes
+from modules.account_manager.account_manager.manager.user_manager import UserManager
 from modules.account_manager.account_manager.models.user_model import User
 from modules.account_manager.account_manager.models.mt5_acc_model import Mt5Account
 from modules.account_manager.account_manager.database import SessionLocal # Assume you defined a session factory
+from shared.shared.security import ( encrypt_val, generate_blind_index, decrypt_val )
+from psycopg2.errors import InvalidTextRepresentation
 
-# Conversation States
-LINK_STEP_LOGIN, LINK_STEP_PASS, LINK_STEP_SERVER = range(3)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
-    
-    with SessionLocal() as session:
-        u_mgr = UserManager(session)
-        user = u_mgr.get_by_telegram_id(tid)
-        
-        if not user:
-            # Auto-registration
-            user = User(telegram_id=tid)
-            u_mgr.add(user)
-            text = "👋 **Welcome to the Trading Bot!**\nYou've been registered. Now, let's link your broker."
-        else:
-            text = "Welcome back! Use the menu below to manage your accounts."
-
+    encrypted_tid = encrypt_val(str(tid))
+    try:
+        with SessionLocal() as session:
+            u_mgr = UserManager(session)
+            user = u_mgr._get_by_telegram_id(tid)
+            
+            if not user:
+                hashed_tid = generate_blind_index(str(tid))
+                # Auto-registration
+                user = User(encrypted_telegram_id=encrypted_tid, telegram_id_hash= hashed_tid)
+                u_mgr.add(user)
+                text = "👋 ***Welcome to the Trading Bot!***\nYou've been registered. Now, let's link broker Accounts You desire."
+            else:
+                text = "Welcome back! Use the menu below to manage your accounts."
+    except InvalidTextRepresentation as e:
+        print(e.pgerror)
+    except Exception as e:
+        print(e)
     # Main Menu
     keyboard = [
-        [InlineKeyboardButton("➕ Link MT5 Account", callback_data="link_mt5")],
+        [InlineKeyboardButton("🔗 Link MT5 Account", callback_data="link_mt5")],
         [InlineKeyboardButton("📂 My Accounts", callback_data="list_accounts")],
         [InlineKeyboardButton("❓ Help", callback_data="help")]
     ]
@@ -33,45 +38,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
 # --- Linking Flow ---
-
-async def start_link_mt5(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("🔢 Enter your **MT5 Login ID**(this will be encrypted):")
-    return LINK_STEP_LOGIN
-
-async def process_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["link_login"] = update.message.text
-    await update.message.reply_text("🔑 Enter your **MT5 Password** (this will be encrypted):")
-    return LINK_STEP_PASS
-
-async def process_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["link_pass"] = update.message.text
-    await update.message.reply_text("🌐 Enter your **MT5 Server** (e.g., Exness-Real10)(this will be encrypted):")
-    return LINK_STEP_SERVER
-
-async def process_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    server = update.message.text
-    tid = update.effective_user.id
-    
-    with SessionLocal() as session:
-        u_mgr = UserManager(session)
-        user = u_mgr.get_by_telegram_id(tid)
-        
-        # Add the account to this user
-        new_acc = Mt5Account(
-            user_id=user.id,
-            login=context.user_data["link_login"],
-            password=context.user_data["link_pass"],
-            server=server
-        )
-        # Assuming you have an MT5Repository or similar
-        session.add(new_acc) 
-        session.commit()
-
-    await update.message.reply_text("✅ **MT5 Account Linked Successfully!**")
-    return ConversationHandler.END
-
 
 # Account view and Delete handlers
 
@@ -82,7 +48,7 @@ async def list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     with SessionLocal() as session:
         u_mgr = UserManager(session)
-        user = u_mgr.get_by_telegram_id(tid)
+        user = u_mgr._get_by_telegram_id(tid)
         
         accounts = user.mt5_accounts
         if not accounts:
@@ -90,15 +56,45 @@ async def list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="back_main")]]))
             return
 
-        text = "📂 **Your Linked Accounts:**\n\n"
+        text = "📂 ***Your Linked Accounts:***\n\n"
         keyboard = []
         for acc in accounts:
             # We don't show the real login/pass here for safety
-            text += f"🔹 Server: `{acc.server}` | ID: `{acc.login[:3]}***` \n"
-            keyboard.append([InlineKeyboardButton(f"❌ Delete {acc.login[:4]}", callback_data=f"del_{acc.id}")])
+            
+            server = decrypt_val(acc.broker_server)
+            text += f"🔹***Name: {acc.account_name} | Server: {server}*** \n"
+            keyboard.append([InlineKeyboardButton(f"❌ Delete {acc.account_name}", callback_data=f"del_{acc.id}")])
         
         keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_main")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the 'Back' button to return to the start menu."""
+    query = update.callback_query
+    await query.answer()
+
+    tid = update.effective_user.id
+    try:
+        with SessionLocal() as session:
+            u_mgr = UserManager(session)
+            user = u_mgr._get_by_telegram_id(tid)
+            if user:
+                text = "Welcome back! Use the menu below to manage your accounts."
+            else:
+                text = "👋 ***Welcome to the Trading Bot!***\nUse the menu below to get started."
+    except Exception as e:
+        print(e)
+        text = "Use the menu below to manage your accounts."
+
+    keyboard = [
+        [InlineKeyboardButton("🔗 Link MT5 Account", callback_data="link_mt5")],
+        [InlineKeyboardButton("🔗 Link Binance Account", callback_data="link_binance")],
+        [InlineKeyboardButton("📂 My Accounts", callback_data="list_accounts")],
+        [InlineKeyboardButton("❓ Help", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+
 
 async def delete_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
