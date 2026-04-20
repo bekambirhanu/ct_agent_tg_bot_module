@@ -4,7 +4,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHan
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, filters, MessageHandler
 from shared.shared.config.Settings import Settings
 from .handlers.request_handlers import get_balance, handle_message
-from .handlers.account_handler import start_command,list_binance_accounts, delete_account, back_to_main, help, toggle_active_account, set_active_account
+from .handlers.account_handler import start_command,list_binance_accounts, delete_account, back_to_main, help, toggle_active_account, set_active_account, get_device_link
 from .handlers.conversation_handler import  binance_link_conversation
 
 def main():
@@ -20,6 +20,7 @@ def main():
     app.add_handler(CallbackQueryHandler(delete_account, pattern="^del_.*"))
     app.add_handler(CallbackQueryHandler(back_to_main, pattern="^back_main$"))
     app.add_handler(CallbackQueryHandler(help, pattern="^help$"))
+    app.add_handler(CallbackQueryHandler(get_device_link, pattern="^get_device_link$"))
     
     # And then handle the request
     app.add_handler(CommandHandler("balance", get_balance))

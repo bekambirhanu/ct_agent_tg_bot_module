@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from modules.account_manager.account_manager.manager.user_manager import UserManager
@@ -6,7 +7,7 @@ from modules.account_manager.account_manager.models.user_model import User
 from modules.account_manager.account_manager.models.binance_acc_model import BinanceAccount
 from modules.account_manager.account_manager.database import SessionLocal # Assume you defined a session factory
 from shared.shared.security import ( encrypt_val, generate_blind_index, decrypt_val )
-from psycopg2.errors import InvalidTextRepresentation
+from psycopg2.errors import InvalidTextRepresentation, UniqueViolation, DataError, OperationalError, IntegrityError
 
 
 def _get_active_account_display(user) -> str:
@@ -16,11 +17,11 @@ def _get_active_account_display(user) -> str:
         return "None"
     if isinstance(active, str):
         try:
-            active = json.loads(active)
+            active: dict = json.loads(active)
         except (json.JSONDecodeError, TypeError):
             return "None"
     broker = active.get("broker", "?")
-    account = active.get("account", "?")
+    account = active.get("account", "Device Link")
     return f"{account} ({broker})"
 
 
@@ -33,15 +34,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user = u_mgr._get_by_telegram_id(tid)
             
             if not user:
+                device_id = str(uuid4())  # Generate a random device ID
+                encrypted_device_id = encrypt_val(device_id)
                 hashed_tid = generate_blind_index(str(tid))
                 # Auto-registration
-                user = User(encrypted_telegram_id=encrypted_tid, telegram_id_hash= hashed_tid)
+                user = User(encrypted_telegram_id=encrypted_tid, telegram_id_hash= hashed_tid, encrypted_device_id=encrypted_device_id)
                 u_mgr.add(user)
-                text = "👋 ***Welcome to the Trading Bot!***\nYou've been registered. Now, let's link broker Accounts You desire."
+                text = f"👋 ***Welcome to the Trading Bot!***\nYou've been registered. Now, let's link broker Accounts You desire.\nYour MT5 Account is Set up.\ndevice_link: ```{device_id}```\n\nNote: Remember to copy this link to your MT5 client app and to keep it secure."
             else:
-                text = "Welcome back! Use the menu below to manage your accounts."
-    except InvalidTextRepresentation as e:
-        print(e.pgerror)
+                device_id = decrypt_val(user.encrypted_device_id)
+                text = f"Welcome back! Use the menu below to manage your accounts.\nYour MT5 Account is Set up.\ndevice_link: ```{device_id}```\n\nNote: Remember to copy this link to your MT5 client app and to keep it secure."
+    except (UniqueViolation, DataError, OperationalError, IntegrityError, InvalidTextRepresentation) as e:
+        print(e.pgerror.strip())
     except Exception as e:
         print(e)
     # Build active-account label for display
@@ -55,6 +59,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"🔄 Active: {active_label}", callback_data="toggle_active_account")],
         [InlineKeyboardButton("🔗 Link to Binance Account", callback_data="link_binance")],
         [InlineKeyboardButton("📂 My Binance Accounts", callback_data="list_binance_accounts")],
+        [InlineKeyboardButton(f"Get Device Link", callback_data="get_device_link")],
         [InlineKeyboardButton("❓ Help", callback_data="help")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -114,6 +119,7 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"🔄 Active: {active_label}", callback_data="toggle_active_account")],
         [InlineKeyboardButton("🔗 Link Binance Account", callback_data="link_binance")],
         [InlineKeyboardButton("📂 My Binance Accounts", callback_data="list_binance_accounts")],
+        [InlineKeyboardButton(f"Get Device Link", callback_data="get_device_link")],
         [InlineKeyboardButton("❓ Help", callback_data="help")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -170,7 +176,14 @@ async def toggle_active_account(update: Update, context: ContextTypes.DEFAULT_TY
             f"Current active: ***{active_label}***\n\n"
             f"Choose an account below to set as active:\n"
         )
-        keyboard = []
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"✅ MT5 (Metatrader 5)",
+                    callback_data=f"setactive_mt5"
+                )
+            ]
+        ]
 
         # Binance accounts
         if binance_accounts:
@@ -196,7 +209,8 @@ async def set_active_account(update: Update, context: ContextTypes.DEFAULT_TYPE)
     callback = query.data  # e.g. "setactive_mt5_3" or "setactive_bin_5"
     parts = callback.split("_")
     # parts: ['setactive', 'mt5'/'bin', '<id>']
-    acc_id = int(parts[2])
+    is_binance = parts[1] == "bin"
+    acc_id = int(parts[2]) if parts[1] == "bin" else None
 
     with SessionLocal() as session:
         u_mgr = UserManager(session)
@@ -206,19 +220,37 @@ async def set_active_account(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not user:
             await query.answer("⚠️ User not found.", show_alert=True)
             return
-
-        acc = session.query(BinanceAccount).filter_by(id=acc_id, user_id=user.id).first()
-        if not acc:
-            await query.answer("Account not found.", show_alert=True)
-            return
-        new_active = {"broker": "Binance", "account": acc.account_name, "account_id": acc.id}
+        if is_binance:
+            acc = session.query(BinanceAccount).filter_by(id=acc_id, user_id=user.id).first()
+            if not acc:
+                await query.answer("Account not found.", show_alert=True)
+                return
+            new_active = {"broker": "Binance", "account": acc.account_name, "account_id": acc.id}
+        else:
+            new_active = {"broker": "MT5", "account": ""}
 
         u_mgr._toggle_active_account(user.id, new_active)
 
-    await query.answer(f"✅ Active account set to {new_active['account']}")
+    await query.answer(f"✅ Active account set to {new_active['account'] if is_binance else "MetaTrader 5"}")
     # Refresh the selection screen to reflect the change
     await toggle_active_account(update, context)
 
+async def get_device_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tid = update.effective_user.id
+
+    with SessionLocal() as session:
+        u_mgr = UserManager(session)
+        user = u_mgr._get_by_telegram_id(tid)
+
+        if not user:
+            await query.edit_message_text("⚠️ User not found. Please /start first.")
+            return
+
+        device_id = decrypt_val(user.encrypted_device_id)
+        text = f"Your device link for MT5 is:\n```{device_id}```\n\nNote: Remember to copy this link to your MT5 client app and to keep it secure."
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_main")]]))
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer("Type /start to get started. For linking accounts, use the buttons provided. For any issues, contact support.")

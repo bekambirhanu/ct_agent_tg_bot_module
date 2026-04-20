@@ -9,7 +9,6 @@ from shared.shared.interfaces.broker import BaseBroker
 from shared.shared.security import decrypt_val
 from modules.account_manager.account_manager.database import SessionLocal
 from modules.account_manager.account_manager.manager.user_manager import UserManager
-from modules.account_manager.account_manager.models.mt5_acc_model import Mt5Account
 from modules.account_manager.account_manager.models.binance_acc_model import BinanceAccount
 
 logger = logging.getLogger(__name__)
@@ -72,18 +71,15 @@ def get_broker_for_user(telegram_id: int) -> BaseBroker:
 
         # ── MT5 path ─────────────────────────────────────────────
         if broker_type == "MT5":
-            acc = session.query(Mt5Account).filter_by(
-                id=account_id, user_id=user.id
-            ).first()
+            device_id = decrypt_val(user.encrypted_device_id)
 
-            if not acc:
+            if not device_id:
                 raise ValueError(
-                    f"MT5 account (id={account_id}) not found. "
+                    f"Device ID for MT5 not found. "
                     "It may have been deleted."
+                    "Please restart the bot or send `/start`"
                 )
-
-            device_id = decrypt_val(acc.encrypted_device_id)
-
+            # Deferred import to avoid circular / heavy imports at module level
             from broker_exness.adapter import ExnessBroker
             return ExnessBroker(device_id=device_id)
 
