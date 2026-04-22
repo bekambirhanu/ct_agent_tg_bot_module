@@ -4,23 +4,28 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHan
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, filters, MessageHandler
 from shared.shared.config.Settings import Settings
 from .handlers.request_handlers import get_balance, handle_message
-from .handlers.account_handler import start_command, list_accounts, delete_account, back_to_main
-from .handlers.conversation_handler import link_conversation
+from .handlers.account_handler import start_command, list_mt5_accounts,list_binance_accounts, delete_account, back_to_main, help
+from .handlers.conversation_handler import mt5_link_conversation, binance_link_conversation
 
 def main():
+    """ ### CT-Agent telegram bot starter function """
+    
     app = ApplicationBuilder().token(Settings.TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(link_conversation)
-    app.add_handler(CallbackQueryHandler(list_accounts, pattern="^list_accounts$"))
-    app.add_handler(CallbackQueryHandler(delete_account, pattern="^del_"))
+    app.add_handler(mt5_link_conversation)
+    app.add_handler(binance_link_conversation)
+    app.add_handler(CallbackQueryHandler(list_mt5_accounts, pattern="^list_mt5_accounts$"))
+    app.add_handler(CallbackQueryHandler(list_binance_accounts, pattern="^list_binance_accounts$"))
+    app.add_handler(CallbackQueryHandler(delete_account, pattern="^del_.*"))
     app.add_handler(CallbackQueryHandler(back_to_main, pattern="^back_main$"))
+    app.add_handler(CallbackQueryHandler(help, pattern="^help$"))
     
     # And then handle the request
     app.add_handler(CommandHandler("balance", get_balance))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-    print("Bot is running...🤖")
+    print("Bot is running ")
 
     app.run_polling()
 

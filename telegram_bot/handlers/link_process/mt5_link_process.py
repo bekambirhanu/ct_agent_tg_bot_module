@@ -32,7 +32,7 @@ async def process_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     login = update.message.text
     # retype if empty
     if login is None:
-        await update.message.reply_text("🔁 please Enter your **MT5 Login number** (this will be encrypted for your security):", parse_mode="Markdown")
+        await update.message.reply_text("🔁 please Enter your **MT5 Login number** (this will be encrypted for your account's security):", parse_mode="Markdown")
         return MT5_STEP_LOGIN
     
     context.user_data["link_login"] = login.strip()
@@ -53,7 +53,7 @@ async def process_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     server = update.message.text
     tid = update.effective_user.id
     if server is None:
-        await update.message.reply_text("🔁 please Enter your **MT5 Server** (this will be encrypted for your security):", parse_mode="Markdown")
+        await update.message.reply_text("🔁 please Enter your **MT5 Server** (this will be encrypted for your account's security):", parse_mode="Markdown")
         return MT5_STEP_SERVER
 
     with SessionLocal() as session:
