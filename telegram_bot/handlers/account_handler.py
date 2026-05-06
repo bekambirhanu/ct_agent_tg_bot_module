@@ -86,8 +86,8 @@ async def list_mt5_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for acc in accounts:
             # We don't show the real login/pass here for safety
             
-            server = decrypt_val(acc.broker_server)
-            text += f"🔹***Name: {acc.account_name} | Server: {server}*** \n"
+            device_id = decrypt_val(acc.encrypted_device_id)
+            text += f"🔹***Name: {acc.account_name} | Device Link ID: {device_id}*** \n"
             keyboard.append([InlineKeyboardButton(f"❌ Delete {acc.account_name}", callback_data=f"del_mt5_{acc.id}")])
         
         keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_main")])
@@ -213,8 +213,8 @@ async def toggle_active_account(update: Update, context: ContextTypes.DEFAULT_TY
         if mt5_accounts:
             text += "\n__MT5 Accounts:__\n"
             for acc in mt5_accounts:
-                server = decrypt_val(acc.broker_server)
-                text += f"  🔹 {acc.account_name} (Server: {server})\n"
+                device_id = decrypt_val(acc.encrypted_device_id)
+                text += f"  🔹 {acc.account_name} Device Link ID: {device_id}\n"
                 keyboard.append([
                     InlineKeyboardButton(
                         f"✅ {acc.account_name} (MT5)",

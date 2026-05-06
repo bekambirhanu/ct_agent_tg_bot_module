@@ -82,11 +82,9 @@ def get_broker_for_user(telegram_id: int) -> BaseBroker:
                     "It may have been deleted."
                 )
 
-            login = decrypt_val(acc.broker_login)
-            password = decrypt_val(acc.encrypted_password)
-            server = decrypt_val(acc.broker_server)
+            device_id = decrypt_val(acc.encrypted_device_id)
 
             from broker_exness.adapter import ExnessBroker
-            return ExnessBroker(login=login, password=password, server=server)
+            return ExnessBroker(device_id=device_id)
 
         raise ValueError(f"Unknown broker type: {broker_type}")
